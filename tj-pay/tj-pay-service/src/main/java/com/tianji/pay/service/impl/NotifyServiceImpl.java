@@ -4,26 +4,24 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.alipay.easysdk.factory.Factory;
 import com.tianji.common.autoconfigure.mq.RabbitMqHelper;
-import com.tianji.common.autoconfigure.redisson.annotations.Lock;
 import com.tianji.common.constants.MqConstants;
 import com.tianji.common.exceptions.BadRequestException;
-import com.tianji.common.exceptions.BizIllegalException;
 import com.tianji.common.exceptions.CommonException;
 import com.tianji.common.utils.DateUtils;
 import com.tianji.common.utils.JsonUtils;
 import com.tianji.common.utils.StringUtils;
-import com.tianji.pay.domain.po.PayOrder;
 import com.tianji.pay.domain.po.RefundOrder;
 import com.tianji.pay.sdk.constants.PayConstants;
 import com.tianji.pay.sdk.constants.PayErrorInfo;
-import com.tianji.pay.sdk.dto.PayResultDTO;
 import com.tianji.pay.sdk.dto.RefundResultDTO;
 import com.tianji.pay.service.INotifyService;
-import com.tianji.pay.service.IPayOrderService;
+import com.tianji.pay.service.PaymentSuccessService;
 import com.tianji.pay.service.IRefundOrderService;
 import com.tianji.pay.third.ali.AliPayService;
 import com.tianji.pay.third.model.RefundStatus;
 import com.tianji.pay.third.wx.config.WxPayProperties;
+import com.tianji.pay.third.ali.config.AliPayProperties;
+import com.alipay.easysdk.kernel.Config;
 import com.wechat.pay.contrib.apache.httpclient.auth.Verifier;
 import com.wechat.pay.contrib.apache.httpclient.cert.CertificatesManager;
 import com.wechat.pay.contrib.apache.httpclient.exception.NotFoundException;
@@ -36,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -45,15 +44,16 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class NotifyServiceImpl implements INotifyService {
-    private final CertificatesManager certificatesManager;
+    private final ObjectProvider<CertificatesManager> certificatesManager;
     private final WxPayProperties properties;
-    private final IPayOrderService payOrderService;
+    private final AliPayProperties aliProperties;
+    private final ObjectProvider<Config> aliPayConfig;
+    private final PaymentSuccessService paymentSuccessService;
     private final RabbitMqHelper rabbitMqHelper;
     private final IRefundOrderService refundOrderService;
 
     @Override
     public void handleWxPayNotify(NotificationRequest request) {
-        log.info("收到微信支付通知：{}", request.getBody());
         // 1.尝试校验微信通知请求参数，安全校验
         Notification notification = checkWxNotifyRequest(request);
         if (notification == null || !StringUtils.equals(notification.getEventType(), "TRANSACTION.SUCCESS")) {
@@ -74,25 +74,12 @@ public class NotifyServiceImpl implements INotifyService {
         LocalDateTime successTime = data.getLocalDateTime("success_time", LocalDateTime.now());
 
         // 4.校验通知数据，主要是业务校验、幂等校验
-        PayOrder payOrder = checkNotifyData(tradingOrderNo, amount, successTime);
-        if (payOrder == null) return;
-
-        // 5.通知业务服务
-        rabbitMqHelper.send(
-                MqConstants.Exchange.PAY_EXCHANGE,
-                MqConstants.Key.PAY_SUCCESS,
-                PayResultDTO.builder()
-                        .payChannel(payOrder.getPayChannelCode())
-                        .payOrderNo(payOrder.getPayOrderNo())
-                        .bizOrderId(payOrder.getBizOrderNo())
-                        .successTime(successTime)
-                        .build());
+        paymentSuccessService.complete(tradingOrderNo, amount, successTime, PayConstants.WX_CHANNEL_CODE);
     }
 
 
     @Override
     public void handleWxPayRefundNotify(NotificationRequest request) {
-        log.info("收到微信退款通知：{}", request.getBody());
         // 1.尝试校验微信通知请求参数，安全校验
         Notification notification = checkWxNotifyRequest(request);
         if (notification == null || !StringUtils.equalsAny(
@@ -136,6 +123,9 @@ public class NotifyServiceImpl implements INotifyService {
 
     @Override
     public void handleAliPayNotify(Map<String, String> request) {
+        if (!aliProperties.isEnabled() || aliPayConfig.getIfAvailable() == null) {
+            throw new BadRequestException("支付宝支付已禁用");
+        }
         log.error("收到阿里支付通知信息，request = {}", request);
         // 1.判断是否是成功通知
         String tradeStatus = request.get("trade_status");
@@ -159,20 +149,7 @@ public class NotifyServiceImpl implements INotifyService {
                 LocalDateTime.now() : DateUtils.parse(success_time, DateUtils.DEFAULT_DATE_TIME_FORMAT);
 
         // 4.校验通知数据，主要是业务校验、幂等校验
-        PayOrder payOrder = checkNotifyData(tradingOrderNo, amount, successTime);
-        if (payOrder == null) return;
-
-        // 5.通知业务服务
-        rabbitMqHelper.send(
-                MqConstants.Exchange.PAY_EXCHANGE,
-                MqConstants.Key.PAY_SUCCESS,
-                PayResultDTO.builder()
-                        .payOrderNo(payOrder.getPayOrderNo())
-                        .payChannel(payOrder.getPayChannelCode())
-                        .bizOrderId(payOrder.getBizOrderNo())
-                        .successTime(successTime)
-                        .build()
-        );
+        paymentSuccessService.complete(tradingOrderNo, amount, successTime, PayConstants.ALI_CHANNEL_CODE);
     }
 
 
@@ -229,8 +206,12 @@ public class NotifyServiceImpl implements INotifyService {
 
     @Nullable
     private Notification checkWxNotifyRequest(NotificationRequest request) {
+        CertificatesManager manager = certificatesManager.getIfAvailable();
+        if (!properties.isEnabled() || manager == null) {
+            throw new BadRequestException("微信支付已禁用");
+        }
         try {
-            Verifier verifier = certificatesManager.getVerifier(properties.getMchId());
+            Verifier verifier = manager.getVerifier(properties.getMchId());
             String apiV3Key = properties.getApiV3Key();
             NotificationHandler handler = new NotificationHandler(verifier, apiV3Key.getBytes(StandardCharsets.UTF_8));
             // 验签和解析请求体
@@ -238,7 +219,7 @@ public class NotifyServiceImpl implements INotifyService {
 
         } catch (NotFoundException e) {
             log.error("找不到商户{}的校验证书", properties.getMchId(), e);
-            return null;
+            throw new BadRequestException("找不到商户校验证书");
         } catch (ValidationException e) {
             log.error("微信回调结果校验失败", e);
             throw new BadRequestException(400, "微信回调结果校验失败", e);
@@ -249,46 +230,6 @@ public class NotifyServiceImpl implements INotifyService {
             log.error("微信回调结果处理失败", e);
             throw new BadRequestException(400, "微信回调结果处理失败", e);
         }
-    }
-
-    @Nullable
-    @Lock(name = PayConstants.RedisKeyFormatter.PAY_NOTIFY)
-    private PayOrder checkNotifyData(Long tradingOrderNo, Integer amount, LocalDateTime successTime) {
-        // 1.数据非空校验
-        if (tradingOrderNo == null || amount == null) {
-            throw new BadRequestException(400, PayErrorInfo.INVALID_NOTIFY_PARAM);
-        }
-        log.info("支付回调通知：payOrderNo = {},  amount = {}", tradingOrderNo, amount);
-
-        // 2.查询交易单，幂等校验
-        PayOrder payOrder = payOrderService.queryByPayOrderNo(tradingOrderNo);
-        // 2.1.非空校验
-        if (payOrder == null) {
-            log.error("支付回调通知的支付单{}不存在", tradingOrderNo);
-            return null;
-        }
-        // 2.2.支付单如果是已支付或已关闭，则不能重复处理
-        if (payOrder.success() || payOrder.closed()) {
-            log.error("支付回调通知的支付单{}已经支付或已经关闭，属于重复通知", tradingOrderNo);
-            return null;
-        }
-
-        // 3.校验支付金额
-        if (!payOrder.getAmount().equals(amount)) {
-            // 金额有误
-            log.error("支付回调通知的金额有误，支付单号：{}，通知金额：{}， 实际金额：{}",
-                    tradingOrderNo, amount, payOrder.getAmount());
-            throw new BizIllegalException("微信通知的金额有误");
-        }
-
-        // 4.更新订单状态，同时基于乐观锁做幂等处理
-        boolean success = payOrderService.markPayOrderSuccess(payOrder.getId(), successTime);
-        if (!success) {
-            // 如果更新失败，说明是重复通知
-            return null;
-        }
-
-        return payOrder;
     }
 
 }

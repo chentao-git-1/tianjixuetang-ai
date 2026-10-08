@@ -22,6 +22,7 @@ public class PayApplyDTO {
     @NotNull(message = "下单用户id不能为空")
     private Long bizUserId;
     @Min(value = 1, message = "支付金额必须为正数")
+    @NotNull(message = "支付金额不能为空")
     @Schema(description = "支付金额，以分为单位")
     private Integer amount;
     @Schema(description = "支付渠道编码，例如：aliPay")

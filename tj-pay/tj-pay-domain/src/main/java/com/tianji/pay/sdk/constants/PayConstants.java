@@ -3,6 +3,7 @@ package com.tianji.pay.sdk.constants;
 public interface PayConstants {
     String ALI_CHANNEL_CODE = "aliPay";
     String WX_CHANNEL_CODE = "wxPay";
+    String MOCK_CHANNEL_CODE = "mockPay";
 
     /**
      * redis key前缀

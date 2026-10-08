@@ -20,6 +20,8 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -28,6 +30,8 @@ import java.util.Arrays;
 
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "tj.pay.wx", name = "enabled", havingValue = "true")
+@ConditionalOnExpression("!${tj.pay.mock.enabled:false}")
 public class WxPayClient {
     private final CloseableHttpClient wxPayClient;
     private final ObjectMapper objectMapper;

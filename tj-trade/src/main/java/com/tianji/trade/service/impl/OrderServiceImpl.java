@@ -423,6 +423,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     @Transactional
     public void handlePaySuccess(PayResultDTO payResult) {
+        if (payResult.getStatus() != PayResultDTO.SUCCESS || payResult.getBizOrderId() == null) {
+            return;
+        }
         // 1.查询订单
         Order order = getById(payResult.getBizOrderId());
         if (order == null) {
@@ -436,7 +439,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         o.setPayChannel(payResult.getPayChannel());
         o.setPayOrderNo(payResult.getPayOrderNo());
         o.setMessage("用户支付成功");
-        updateById(o);
+        // MQ可能重投递，且查询补偿也会进入这里，仅未支付订单允许转为已支付。
+        boolean updated = lambdaUpdate().eq(Order::getId, order.getId())
+                .eq(Order::getStatus, OrderStatus.NO_PAY.getValue()).update(o);
+        if (!updated) {
+            return;
+        }
         // 3.更新订单条目
         detailService.markDetailSuccessByOrderId(o.getId(), payResult.getPayChannel(), payResult.getSuccessTime());
         // 4.查询订单包含的课程信息

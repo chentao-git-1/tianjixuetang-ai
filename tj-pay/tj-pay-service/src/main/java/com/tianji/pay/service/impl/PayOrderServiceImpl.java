@@ -4,10 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.tianji.common.autoconfigure.mq.RabbitMqHelper;
 import com.tianji.common.autoconfigure.redisson.annotations.Lock;
 import com.tianji.common.autoconfigure.redisson.enums.LockStrategy;
-import com.tianji.common.constants.MqConstants;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.exceptions.BadRequestException;
 import com.tianji.common.exceptions.BizIllegalException;
@@ -21,17 +19,19 @@ import com.tianji.pay.sdk.constants.PayErrorInfo;
 import com.tianji.pay.sdk.dto.PayApplyDTO;
 import com.tianji.pay.sdk.dto.PayResultDTO;
 import com.tianji.pay.service.IPayOrderService;
+import com.tianji.pay.service.PaymentSuccessService;
 import com.tianji.pay.third.IPayService;
 import com.tianji.pay.third.model.PayStatus;
 import com.tianji.pay.third.model.PayStatusResponse;
 import com.tianji.pay.third.model.PrepayResponse;
-import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Collections;
 
 import static com.tianji.pay.sdk.constants.PayErrorInfo.*;
 
@@ -48,13 +48,16 @@ import static com.tianji.pay.sdk.constants.PayErrorInfo.*;
 @RequiredArgsConstructor
 public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> implements IPayOrderService {
 
-    @Resource
-    private Map<String, IPayService> payServiceChannels;
-    private final RabbitMqHelper rabbitMqHelper;
+    @Autowired(required = false)
+    private Map<String, IPayService> payServiceChannels = Collections.emptyMap();
+    private final PaymentSuccessService paymentSuccessService;
 
     @Override
     @Lock(name = PayConstants.RedisKeyFormatter.PAY_APPLY, leaseTime = 3, autoUnlock = false)
     public String applyPayOrder(PayApplyDTO payApplyDTO) {
+        if (payApplyDTO.getAmount() == null || payApplyDTO.getAmount() <= 0) {
+            throw new BadRequestException("支付金额必须为正数");
+        }
         log.debug("准备创建支付单，业务订单号：{}", payApplyDTO.getBizOrderNo());
         // 1.选择支付渠道
         IPayService payService = payServiceChannels.get(payApplyDTO.getPayChannelCode());
@@ -75,7 +78,7 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
                 payApplyDTO.getOrderInfo(), payOrder.getPayOrderNo().toString(), payOrder.getAmount());
 
         // 4.更新支付链接等信息到数据库
-        updatePayResult2DB(prepayResponse, payOrder.getId());
+        updatePayResult2DB(prepayResponse, payOrder);
 
         if (!prepayResponse.isSuccess()) {
             log.error("预创建支付单失败，详情：{}", prepayResponse.getDetail());
@@ -86,18 +89,16 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
         return prepayResponse.getPayUrl();
     }
 
-    private void updatePayResult2DB(PrepayResponse prepayResponse, Long payOrderId) {
-        try {
-            lambdaUpdate()
-                    .set(prepayResponse.isSuccess(), PayOrder::getQrCodeUrl, prepayResponse.getPayUrl())
-                    .set(prepayResponse.isSuccess(), PayOrder::getStatus, PayStatus.WAIT_BUYER_PAY.getValue())
-                    .set(!prepayResponse.isSuccess(), PayOrder::getResultCode, prepayResponse.getCode())
-                    .set(!prepayResponse.isSuccess(), PayOrder::getResultMsg, prepayResponse.getMsg())
-                    .eq(PayOrder::getId, payOrderId)
-                    .update();
-        } catch (Exception e) {
-            log.error("更新支付单结果到数据时发生异常", e);
-        }
+    private void updatePayResult2DB(PrepayResponse prepayResponse, PayOrder payOrder) {
+        lambdaUpdate()
+                .set(prepayResponse.isSuccess(), PayOrder::getQrCodeUrl, prepayResponse.getPayUrl())
+                .set(prepayResponse.isSuccess(), PayOrder::getStatus, PayStatus.WAIT_BUYER_PAY.getValue())
+                .set(!prepayResponse.isSuccess(), PayOrder::getResultCode, prepayResponse.getCode())
+                .set(!prepayResponse.isSuccess(), PayOrder::getResultMsg, prepayResponse.getMsg())
+                .eq(PayOrder::getId, payOrder.getId())
+                .eq(PayOrder::getPayChannelCode, payOrder.getPayChannelCode())
+                .eq(PayOrder::getStatus, PayStatus.NOT_COMMIT.getValue())
+                .update();
     }
 
     private PayOrder buildPayOrder(PayApplyDTO payApplyDTO) {
@@ -123,6 +124,10 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
             return payOrder;
         }
         // 3.旧单已经存在，判断是否支付成功
+        if (!oldOrder.getAmount().equals(payApplyDTO.getAmount())
+                || !oldOrder.getBizUserId().equals(payApplyDTO.getBizUserId())) {
+            throw new BizIllegalException("支付申请与已有支付单的金额或用户不一致");
+        }
         if (PayStatus.TRADE_SUCCESS.equalsValue(oldOrder.getStatus())) {
             // 已经支付成功，抛出异常
             throw new BizIllegalException(PAY_ORDER_ALREADY_PAY_CODE, PAY_ORDER_ALREADY_PAY);
@@ -138,7 +143,12 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
             PayOrder payOrder = buildPayOrder(payApplyDTO);
             payOrder.setId(oldOrder.getId());
             payOrder.setQrCodeUrl("");
-            updateById(payOrder);
+            boolean changed = lambdaUpdate().eq(PayOrder::getId, oldOrder.getId())
+                    .eq(PayOrder::getStatus, oldOrder.getStatus())
+                    .eq(PayOrder::getPayChannelCode, oldOrder.getPayChannelCode()).update(payOrder);
+            if (!changed) {
+                throw new BizIllegalException("支付单状态已变更，无法切换渠道");
+            }
             payOrder.setPayOrderNo(oldOrder.getPayOrderNo());
             return payOrder;
         }
@@ -164,6 +174,8 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
         if (payOrder.success()) {
             // 2.1.支付成功
             return PayResultDTO.builder()
+                    .status(PayResultDTO.SUCCESS)
+                    .bizOrderId(payOrder.getBizOrderNo())
                     .payOrderNo(payOrder.getPayOrderNo())
                     .successTime(payOrder.getPaySuccessTime())
                     .payChannel(payOrder.getPayChannelCode())
@@ -189,14 +201,8 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
 
     @Override
     public boolean markPayOrderSuccess(Long id, LocalDateTime successTime) {
-        return lambdaUpdate()
-                .set(PayOrder::getStatus, PayStatus.TRADE_SUCCESS.getValue())
-                .set(PayOrder::getNotifyStatus, NotifyStatus.CALLING.getValue())
-                .set(PayOrder::getPaySuccessTime, successTime)
-                .eq(PayOrder::getId, id)
-                // 支付状态的乐观锁判断
-                .in(PayOrder::getStatus, PayStatus.NOT_COMMIT.getValue(), PayStatus.WAIT_BUYER_PAY.getValue())
-                .update();
+        PayOrder order = getById(id);
+        return order != null && paymentSuccessService.markSuccess(order, successTime);
     }
 
     @Override
@@ -218,8 +224,7 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
         IPayService payService = payServiceChannels.get(payOrder.getPayChannelCode());
         if (payService == null) {
             log.error("支付渠道不存在，业务单号：{}", payOrder.getBizOrderNo());
-            // 异常订单，需要关闭支付单
-            closeOrder(payOrder.getId());
+            // 渠道可能只是暂时禁用，保留支付单，等待恢复配置后对账。
             return;
         }
         // 2.判断订单是否超时
@@ -241,20 +246,12 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
             // 支付状态没有变更
             return;
         }
-        // 3.3.状态是支付成功或失败，直接更新订单状态
-        updatePayStatus2DB(response, payOrder.getId());
-        // 3.4.判断状态是否是成功，成功需要发送MQ消息通知
+        // 3.3.支付成功与回调共用金额校验、条件更新和消息通知。
         if (PayStatus.TRADE_SUCCESS.equalsValue(response.getPayStatus())) {
-            rabbitMqHelper.send(
-                    MqConstants.Exchange.PAY_EXCHANGE,
-                    MqConstants.Key.PAY_SUCCESS,
-                    PayResultDTO.builder()
-                            .payOrderNo(payOrder.getPayOrderNo())
-                            .bizOrderId(payOrder.getBizOrderNo())
-                            .payChannel(payOrder.getPayChannelCode())
-                            .successTime(response.getSuccessTime())
-                            .build()
-            );
+            paymentSuccessService.complete(payOrder.getPayOrderNo(), response.getTotalAmount(),
+                    response.getSuccessTime(), payOrder.getPayChannelCode());
+        } else {
+            updatePayStatus2DB(response, payOrder.getId());
         }
     }
 
@@ -265,6 +262,7 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
                     .set(PayOrder::getResultCode, response.getCode() == null ? "" : response.getCode())
                     .set(PayOrder::getResultMsg, response.getMsg() == null ? "" : response.getMsg())
                     .eq(PayOrder::getId, id)
+                    .in(PayOrder::getStatus, PayStatus.NOT_COMMIT.getValue(), PayStatus.WAIT_BUYER_PAY.getValue())
                     .update();
         } catch (Exception e) {
             log.error("更新支付单结果到数据时发生异常", e);
@@ -272,9 +270,9 @@ public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> i
     }
 
     private void closeOrder(Long id) {
-        PayOrder payOrder = new PayOrder();
-        payOrder.setId(id);
-        payOrder.setStatus(PayStatus.TRADE_CLOSED.getValue());
-        updateById(payOrder);
+        lambdaUpdate().set(PayOrder::getStatus, PayStatus.TRADE_CLOSED.getValue())
+                .eq(PayOrder::getId, id)
+                .in(PayOrder::getStatus, PayStatus.NOT_COMMIT.getValue(), PayStatus.WAIT_BUYER_PAY.getValue())
+                .update();
     }
 }

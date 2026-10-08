@@ -1,0 +1,7 @@
+spring:
+  profiles:
+    active: local
+  config:
+    import:
+      - classpath:mock-remote-test.yml
+      - classpath:pay-local.yml

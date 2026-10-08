@@ -18,6 +18,9 @@ import com.tianji.pay.third.model.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import com.alipay.easysdk.kernel.Config;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -29,10 +32,13 @@ import static com.tianji.pay.sdk.constants.PayConstants.ALI_CHANNEL_CODE;
 
 @Slf4j
 @Service(ALI_CHANNEL_CODE)
+@ConditionalOnProperty(prefix = "tj.pay.ali", name = "enabled", havingValue = "true")
+@ConditionalOnExpression("!${tj.pay.mock.enabled:false}")
 @RequiredArgsConstructor
 public class AliPayService implements IPayService {
 
     private final CommonPayProperties commonPayProperties;
+    private final Config aliPayConfig;
 
     @Override
     public PrepayResponse createPrepayOrder(String title, String orderNo, Integer amount) {

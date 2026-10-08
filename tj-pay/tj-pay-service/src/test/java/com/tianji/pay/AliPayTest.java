@@ -10,9 +10,11 @@ import com.alipay.easysdk.payment.common.models.AlipayTradeRefundResponse;
 import com.alipay.easysdk.payment.facetoface.models.AlipayTradePrecreateResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.util.List;
 
+@EnabledIfSystemProperty(named = "runRealPayTests", matches = "true")
 public class AliPayTest {
     @BeforeEach
     public void init(){

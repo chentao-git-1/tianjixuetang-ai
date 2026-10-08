@@ -9,9 +9,11 @@ import com.wechat.pay.contrib.apache.httpclient.cert.CertificatesManager;
 import com.wechat.pay.contrib.apache.httpclient.exception.HttpCodeException;
 import com.wechat.pay.contrib.apache.httpclient.exception.NotFoundException;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.Assert;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -20,7 +22,12 @@ import java.security.GeneralSecurityException;
 import java.security.PrivateKey;
 
 @Configuration
-@EnableConfigurationProperties(WxPayProperties.class)
+@ConditionalOnProperty(
+        prefix = "tj.pay.wx",
+        name = "enabled",
+        havingValue = "true"
+)
+@ConditionalOnExpression("!${tj.pay.mock.enabled:false}")
 public class WxConfiguration {
 
     /**
@@ -29,6 +36,11 @@ public class WxConfiguration {
     @Bean(destroyMethod = "stop")
     public CertificatesManager certificatesManager(WxPayProperties properties)
             throws HttpCodeException, GeneralSecurityException, IOException {
+        Assert.hasText(properties.getAppId(), "启用微信支付必须配置 tj.pay.wx.app-id");
+        Assert.hasText(properties.getMchId(), "启用微信支付必须配置 tj.pay.wx.mch-id");
+        Assert.hasText(properties.getMchSerialNo(), "启用微信支付必须配置 tj.pay.wx.mch-serial-no");
+        Assert.hasText(properties.getPrivateKey(), "启用微信支付必须配置 tj.pay.wx.private-key");
+        Assert.hasText(properties.getApiV3Key(), "启用微信支付必须配置 tj.pay.wx.api-v3-key");
         // 1.加载私钥
         PrivateKey privateKey = PemUtil.readPemPrivateKey(
                 new ByteArrayInputStream(properties.getPrivateKey().getBytes(StandardCharsets.UTF_8)));

@@ -129,6 +129,7 @@ public class PayServiceImpl implements IPayService {
             }
             // 发送延迟查询消息，再次查询支付状态
             sendDelayQueryMessage(message);
+            return;
         }
         // 3.2.支付成功
         orderService.handlePaySuccess(payResult);

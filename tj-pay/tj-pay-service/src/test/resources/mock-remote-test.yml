@@ -1,0 +1,10 @@
+tj:
+  pay:
+    wx:
+      enabled: true
+    ali:
+      enabled: true
+    mock:
+      enabled: false
+server:
+  address: 0.0.0.0

@@ -23,12 +23,13 @@ import com.tianji.pay.service.IRefundOrderService;
 import com.tianji.pay.third.IPayService;
 import com.tianji.pay.third.model.RefundResponse;
 import com.tianji.pay.third.model.RefundStatus;
-import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.Collections;
 
 import static com.tianji.pay.sdk.constants.PayErrorInfo.INVALID_PAY_CHANNEL;
 
@@ -49,8 +50,8 @@ public class RefundOrderServiceImpl extends ServiceImpl<RefundOrderMapper, Refun
 
     private final RabbitMqHelper rabbitMqHelper;
 
-    @Resource
-    private Map<String, IPayService> payServiceChannels;
+    @Autowired(required = false)
+    private Map<String, IPayService> payServiceChannels = Collections.emptyMap();
 
     @Override
     public RefundResultDTO applyRefund(RefundApplyDTO refundApplyDTO) {
@@ -108,6 +109,9 @@ public class RefundOrderServiceImpl extends ServiceImpl<RefundOrderMapper, Refun
         if (!payOrder.success()) {
             // 订单尚未支付，无法退款
             throw new BizIllegalException(PayErrorInfo.PAY_ORDER_NOT_SUCCESS);
+        }
+        if (PayConstants.MOCK_CHANNEL_CODE.equals(payOrder.getPayChannelCode())) {
+            throw new BadRequestException("本地模拟支付暂不支持退款，不会生成退款成功记录");
         }
 
         // 3.查询当前订单是否已经有退款单
@@ -222,8 +226,7 @@ public class RefundOrderServiceImpl extends ServiceImpl<RefundOrderMapper, Refun
         IPayService payService = payServiceChannels.get(payChannelCode);
         if (payService == null) {
             log.error("支付渠道不存在，退款单号：{}", refundOrder.getId());
-            // 异常订单，需要关闭支付单
-            closeOrder(refundOrder.getId());
+            // 渠道暂时禁用时保留退款单，等待恢复后对账。
             return;
         }
         // 2.查询退款状态

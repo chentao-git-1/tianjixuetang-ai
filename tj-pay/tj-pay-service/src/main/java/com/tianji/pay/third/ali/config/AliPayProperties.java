@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 @ConfigurationProperties(prefix = "tj.pay.ali")
 public class AliPayProperties {
+    private boolean enabled;
     private String protocol = "https";
     private String gatewayHost= "openapi.alipay.com";
     private String signType = "RSA2";

@@ -7,6 +7,7 @@ import lombok.Getter;
 public enum PayChannel {
     wxPay("微信支付"),
     aliPay("支付宝支付"),
+    mockPay("本地模拟支付"),
     ;
 
     private final String desc;

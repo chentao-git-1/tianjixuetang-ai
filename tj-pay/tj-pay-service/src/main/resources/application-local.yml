@@ -18,6 +18,7 @@ spring:
       - nacos:shared-feign.yaml # 共享feign配置
       - nacos:shared-mq.yaml # 共享mq配置
       - nacos:shared-xxljob.yaml # 共享mq配置
+      - classpath:pay-local.yml # 最后导入本机支付开关，避免被共享Nacos支付配置覆盖
 logging:
   level:
     com.tianji: debug

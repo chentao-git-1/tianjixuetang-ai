@@ -1,0 +1,21 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        ip: 127.0.0.1 # local调用方也应在本机，匹配服务的回环绑定地址
+  config:
+    activate:
+      on-profile: local
+server:
+  address: 127.0.0.1
+  forward-headers-strategy: none
+tj:
+  pay:
+    wx:
+      enabled: false
+    ali:
+      enabled: false
+    mock:
+      enabled: true
+      # 空令牌允许启动，但模拟入口返回403。请在启动前设置此环境变量。
+      token: ${TJ_PAY_MOCK_TOKEN:}

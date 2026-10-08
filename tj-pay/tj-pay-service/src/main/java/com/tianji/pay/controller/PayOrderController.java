@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -35,7 +36,7 @@ public class PayOrderController {
     @Operation(summary = "扫码支付申请支付单，返回支付url地址，用于生产二维码")
     @PostMapping
     @ApiResponse(responseCode = "200", description = "支付URL", content = @Content(schema = @Schema(implementation = String.class)))
-    public String applyPayOrder(@RequestBody @Schema(description = "支付申请信息") PayApplyDTO payApplyDTO){
+    public String applyPayOrder(@Valid @RequestBody @Schema(description = "支付申请信息") PayApplyDTO payApplyDTO){
         if(!PayType.NATIVE.equalsValue(payApplyDTO.getPayType())){
             throw new BadRequestException(PayErrorInfo.INVALID_PAY_TYPE);
         }

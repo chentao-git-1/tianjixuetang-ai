@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 @ConfigurationProperties(prefix = "tj.pay.wx")
 public class WxPayProperties{
+    private boolean enabled;
     /**
      * appId
      */
