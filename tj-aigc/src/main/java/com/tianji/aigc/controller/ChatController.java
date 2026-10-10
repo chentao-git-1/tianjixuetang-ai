@@ -2,6 +2,9 @@ package com.tianji.aigc.controller;
 
 
 import com.tianji.aigc.dto.ChatDTO;
+import com.tianji.aigc.service.ChatService;
+import com.tianji.aigc.vo.ChatEventVO;
+import com.tianji.common.annotations.NoWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -19,14 +22,21 @@ import reactor.core.publisher.Flux;
 @RequiredArgsConstructor
 public class ChatController {
 
+    private final ChatService chatService;
 
+
+    @NoWrapper
     @PostMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chat(@RequestBody ChatDTO chat){
+    public Flux<ChatEventVO> chat(@RequestBody ChatDTO chat){
+        Flux<ChatEventVO> stringFlux= chatService.chat(chat);
 
 
-
-        return null;
+        return stringFlux;
     }
 
+    @PostMapping("/stop")
+    public void stopChat(String sessionId){
+        chatService.stopChat(sessionId);
+    }
 
 }
