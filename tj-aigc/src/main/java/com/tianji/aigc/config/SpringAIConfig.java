@@ -2,6 +2,8 @@ package com.tianji.aigc.config;
 
 import com.tianji.aigc.memory.RedisChatMemoryRepository;
 import com.tianji.aigc.memory.jdbc.JdbcChatMemoryRepository;
+import com.tianji.aigc.tools.CourseTools;
+import com.tianji.aigc.tools.OrderTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
@@ -28,9 +30,13 @@ public class SpringAIConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder,
                                  Advisor loggerAdvisor,
-                                 Advisor messageChatMemoryAdvisor) {  // 日志记录器
+                                 Advisor messageChatMemoryAdvisor,
+                                 CourseTools courseTools ,// 课程工具,
+                                 OrderTools orderTools // 预下单工具
+    ) {  // 日志记录器
         return chatClientBuilder
-                .defaultAdvisors(loggerAdvisor,messageChatMemoryAdvisor) //添加 Advisor 功能增强
+                .defaultAdvisors(loggerAdvisor, messageChatMemoryAdvisor) //添加 Advisor 功能增强
+                .defaultTools(courseTools, orderTools) //添加默认工具
                 .build();
     }
 

@@ -1,7 +1,11 @@
 package com.tianji.aigc.memory;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.convert.Convert;
+import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.json.JSONUtil;
+import com.tianji.aigc.config.ToolResultHolder;
+import com.tianji.aigc.constants.Constant;
 import org.springframework.ai.chat.messages.*;
 
 /**
@@ -21,6 +25,18 @@ public class MessageUtil {
         myMessage.setTextContent(message.getText());
         if (message instanceof AssistantMessage assistantMessage) {
             myMessage.setToolCalls(assistantMessage.getToolCalls());
+
+            // 通过 messageId 获取 requestId，再通过 requestId 获取参数列表，如果有，就存储起来
+            // 最后，删除 messageId 对应的数据
+            var messageId = Convert.toStr(assistantMessage.getMetadata().get(Constant.ID));
+            var requestId = Convert.toStr(ToolResultHolder.get(messageId, Constant.REQUEST_ID));
+            var params = ToolResultHolder.get(requestId);
+            if (ObjectUtil.isNotEmpty(params)) {
+                myMessage.setParams(params);
+            }
+            ToolResultHolder.remove(messageId);
+
+
         }
 
         if (message instanceof ToolResponseMessage toolResponseMessage) {
@@ -61,5 +77,8 @@ public class MessageUtil {
 
         throw new RuntimeException("Message data conversion failed.");
     }
+
+
+
 
 }
