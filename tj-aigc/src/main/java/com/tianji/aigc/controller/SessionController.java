@@ -27,4 +27,14 @@ public class SessionController {
         return chatSessionService.getHot(n);
     }
 
+    /**
+     * 查询单个历史对话详情
+     *
+     * @return 对话记录列表
+     */
+    @GetMapping("/{sessionId}")
+    public List<MessageVO> queryBySessionId(@PathVariable("sessionId") String sessionId) {
+        return this.chatSessionService.queryBySessionId(sessionId);
+    }
+
 }

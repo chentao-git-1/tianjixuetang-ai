@@ -10,6 +10,7 @@ import com.tianji.aigc.vo.ChatEventVO;
 import com.tianji.common.utils.DateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
+
+
     private final ChatClient chatClient;
 
     private final SystemPromptConfig systemPromptConfig;
@@ -33,7 +36,8 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public Flux<ChatEventVO> chat(ChatDTO chat) {
-
+        //获取对话id
+        String conversationId = ChatService.getConversationId(chat.getSessionId());
 
 
         return this.chatClient.prompt()
@@ -42,6 +46,7 @@ public class ChatServiceImpl implements ChatService {
                         .params(Map.of("now", DateUtil.now()))
                 )
                 .user(chat.getQuestion())
+                .advisors(advisor->advisor.param(ChatMemory.CONVERSATION_ID,conversationId))//设置对话记忆中对话id
                 .stream()
                 .chatResponse()
                 .doFirst(()->stringRedisTemplate.opsForValue().set(chat.getSessionId(),"true"))
