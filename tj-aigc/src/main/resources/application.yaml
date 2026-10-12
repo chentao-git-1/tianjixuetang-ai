@@ -34,4 +34,5 @@ tj:
           timeout-ms: 20000
 
     memory:
-      max:100
+      max: 100
+      type: Mysql #Mysql

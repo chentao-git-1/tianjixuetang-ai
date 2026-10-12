@@ -1,18 +1,25 @@
 package com.tianji.aigc.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.stream.StreamUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.tianji.aigc.config.SessionProperties;
 import com.tianji.aigc.entity.ChatSession;
+import com.tianji.aigc.enums.MessageTypeEnum;
 import com.tianji.aigc.mapper.ChatSessionMapper;
+import com.tianji.aigc.service.ChatService;
 import com.tianji.aigc.service.ChatSessionService;
+import com.tianji.aigc.vo.MessageVO;
 import com.tianji.aigc.vo.SessionDetailVO;
 import com.tianji.aigc.vo.SessionVO;
 import com.tianji.common.utils.UserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -24,6 +31,8 @@ import java.util.List;
 public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession> implements ChatSessionService {
 
     private final SessionProperties sessionProperties;
+
+    private final ChatMemory chatMemory;
 
     @Override
     public SessionVO createSession(Integer num) {
@@ -56,6 +65,24 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
         }
 
         return sessionVOS;
+    }
+
+    @Override
+    public List<MessageVO> queryBySessionId(String sessionId) {
+        // 根据会话ID获取对话ID
+        String conversationId = ChatService.getConversationId(sessionId);
+        // 从Redis中获取历史消息
+        List<Message> messageList = this.chatMemory.get(conversationId);
+        // 过滤并转换消息列表
+        return StreamUtil.of(messageList)
+                // 过滤掉非用户消息和助手消息
+                .filter(message -> message.getMessageType() == MessageType.ASSISTANT || message.getMessageType() == MessageType.USER)
+                // 转换为MessageVO对象
+                .map(message -> MessageVO.builder()
+                        .content(message.getText())
+                        .type(MessageTypeEnum.valueOf(message.getMessageType().name()))
+                        .build())
+                .toList();
     }
 
 }

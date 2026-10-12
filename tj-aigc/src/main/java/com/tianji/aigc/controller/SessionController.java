@@ -1,6 +1,7 @@
 package com.tianji.aigc.controller;
 
 import com.tianji.aigc.service.ChatSessionService;
+import com.tianji.aigc.vo.MessageVO;
 import com.tianji.aigc.vo.SessionDetailVO;
 import com.tianji.aigc.vo.SessionVO;
 import lombok.RequiredArgsConstructor;
@@ -36,5 +37,6 @@ public class SessionController {
     public List<MessageVO> queryBySessionId(@PathVariable("sessionId") String sessionId) {
         return this.chatSessionService.queryBySessionId(sessionId);
     }
+
 
 }
