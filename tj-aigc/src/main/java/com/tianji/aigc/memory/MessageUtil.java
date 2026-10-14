@@ -68,7 +68,7 @@ public class MessageUtil {
                         .build();
             }
             case ASSISTANT -> {
-                return new AssistantMessage(myMessage.getTextContent(), myMessage.getMetadata(), myMessage.getToolCalls());
+                return new MyAssistantMessage(myMessage.getTextContent(), myMessage.getMetadata(), myMessage.getToolCalls(), myMessage.getMedia(), myMessage.getParams());
             }
             case TOOL -> {
                 return new ToolResponseMessage(myMessage.getToolResponses(), myMessage.getMetadata());

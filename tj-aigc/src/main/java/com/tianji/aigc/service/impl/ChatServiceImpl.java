@@ -15,8 +15,11 @@ import com.tianji.aigc.vo.ChatEventVO;
 import com.tianji.common.utils.UserContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -43,6 +46,8 @@ public class ChatServiceImpl implements ChatService {
     // 输出结束的标记
     private static final ChatEventVO STOP_EVENT = ChatEventVO.builder().eventType(ChatEventTypeEnum.STOP.getValue()).build();
 
+    private final VectorStore vectorStore;
+
 
 
 
@@ -53,6 +58,12 @@ public class ChatServiceImpl implements ChatService {
         String conversationId = ChatService.getConversationId(chat.getSessionId());
 
         String requestId = IdUtil.simpleUUID();
+
+
+        // 创建RAG增强
+        var qaAdvisor = QuestionAnswerAdvisor.builder(this.vectorStore)
+                .searchRequest(SearchRequest.builder().similarityThreshold(0.6d).topK(6).build())
+                .build();
 
         // 获取用户id
         var userId = UserContext.getUser();
@@ -68,7 +79,10 @@ public class ChatServiceImpl implements ChatService {
                 .user(chat.getQuestion())
 
                 // 设置对话记忆中的对话id
-                .advisors(advisor -> advisor.param(
+                .advisors(advisor ->
+                        advisor
+                                .advisors(qaAdvisor)
+                                .param(
                         ChatMemory.CONVERSATION_ID, conversationId
                 ))
 
