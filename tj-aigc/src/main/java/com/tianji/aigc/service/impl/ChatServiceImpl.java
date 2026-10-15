@@ -11,9 +11,11 @@ import com.tianji.aigc.constants.Constant;
 import com.tianji.aigc.dto.ChatDTO;
 import com.tianji.aigc.enums.ChatEventTypeEnum;
 import com.tianji.aigc.service.ChatService;
+import com.tianji.aigc.service.ChatSessionService;
 import com.tianji.aigc.vo.ChatEventVO;
 import com.tianji.common.utils.UserContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -28,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ChatServiceImpl implements ChatService {
 
@@ -48,6 +51,8 @@ public class ChatServiceImpl implements ChatService {
 
     private final VectorStore vectorStore;
 
+    private final ChatSessionService chatSessionService;
+
 
 
 
@@ -59,14 +64,18 @@ public class ChatServiceImpl implements ChatService {
 
         String requestId = IdUtil.simpleUUID();
 
+        Long userId = UserContext.getUser();
+
+        // 异步更新会话信息
+        this.chatSessionService.update(chat.getSessionId(), chat.getQuestion(), userId);
+
 
         // 创建RAG增强
         var qaAdvisor = QuestionAnswerAdvisor.builder(this.vectorStore)
                 .searchRequest(SearchRequest.builder().similarityThreshold(0.6d).topK(6).build())
                 .build();
 
-        // 获取用户id
-        var userId = UserContext.getUser();
+
 
         // 大模型输出内容的缓存器
         var outputBuilder = new StringBuilder();
@@ -148,9 +157,14 @@ public class ChatServiceImpl implements ChatService {
                 }))
 
                 // 完成、异常或取消时清理Redis标记
-                .doFinally(signalType ->
-                        stringRedisTemplate.delete(chat.getSessionId())
-                );
+                .doFinally(signalType -> {
+                    ToolResultHolder.remove(requestId);
+                    try {
+                        stringRedisTemplate.delete(chat.getSessionId());
+                    } catch (Exception error) {
+                        log.warn("清理对话状态失败，sessionId = {}", chat.getSessionId(), error);
+                    }
+                });
     }
 
     @Override

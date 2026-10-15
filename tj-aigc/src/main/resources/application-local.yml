@@ -12,10 +12,18 @@ spring:
     import:
       - nacos:${spring.application.name}.yaml # 导入本服务的配置
       - nacos:shared-spring.yaml # 共享spring配置
-      - nacos:shared-redis.yaml # 共享redis配置
+#      - nacos:shared-redis.yaml # 共享redis配置
       - nacos:shared-logs.yaml # 共享日志配置
       - nacos:shared-feign.yaml # 共享feign配置
       - nacos:shared-mybatis.yaml # 共享mybatis配置
+      - classpath:aigc-vector-local.yml # 最后导入，避免Nacos覆盖本机索引初始化开关
+  data:
+    redis:
+      host: 192.168.150.101
+      port: 16379
+      password: 123456
+      client-type: jedis
+
 logging:
   level:
     com:
@@ -32,3 +40,4 @@ logging:
 #          client5:
 #            http:
 #              wire: debug
+

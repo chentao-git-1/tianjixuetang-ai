@@ -5,6 +5,7 @@ import com.tianji.common.autoconfigure.mvc.advice.CommonExceptionAdvice;
 import com.tianji.common.autoconfigure.mvc.advice.WrapperResponseBodyAdvice;
 import com.tianji.common.autoconfigure.mvc.converter.WrapperResponseMessageConverter;
 import com.tianji.common.filters.RequestIdFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.Filter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
@@ -40,7 +41,7 @@ public class MvcConfig implements WebMvcConfigurer {
     }
 
     @Bean
-    public WrapperResponseBodyAdvice wrapperResponseBodyAdvice(){
-        return new WrapperResponseBodyAdvice();
+    public WrapperResponseBodyAdvice wrapperResponseBodyAdvice(ObjectMapper objectMapper){
+        return new WrapperResponseBodyAdvice(objectMapper);
     }
 }
